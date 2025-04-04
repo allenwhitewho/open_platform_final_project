@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         pip install -r requirements.txt || true  # 若沒有 requirements.txt 會略過
-        pip install pandas requests
+        pip install pandas requests beautifulsoup4
 
     - name: Run api.py
       run: python api.py
