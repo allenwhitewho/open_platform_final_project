@@ -128,3 +128,61 @@ with open("static.csv", "w", newline="", encoding="utf-8-sig") as f:
 print("\n📊 分類統計結果（依出現次數排序）：")
 for cat, count in sorted(category_count.items(), key=lambda x: x[1], reverse=True):
     print(f"分類「{cat}」出現次數：{count}")
+
+import pandas as pd
+from datetime import datetime
+import csv
+
+# 讀取 static.csv（你的爬蟲輸出）
+df = pd.read_csv("static.csv")
+
+# 統計分類出現次數
+category_count = df["分類"].value_counts().sort_values(ascending=False)
+
+# 取得當前時間
+now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+# 組合一列：時間 + Top 分類(次數)
+row = [now] + [f"{cat}({count})" for cat, count in category_count.items()]
+
+# 檢查欄位長度是否要更新（避免欄位不足）
+csv_file = "category_log.csv"
+try:
+    with open(csv_file, newline='', encoding='utf-8-sig') as f:
+        reader = csv.reader(f)
+        header = next(reader)
+except FileNotFoundError:
+    header = ["時間"]
+if len(row) > len(header):
+    header = ["時間"] + [f"Top{i}" for i in range(1, len(row))]
+
+# 寫入資料（附加）
+with open(csv_file, "a", newline="", encoding="utf-8-sig") as f:
+    writer = csv.writer(f)
+    # 如果是空檔案，補寫欄位
+    if f.tell() == 0:
+        writer.writerow(header)
+    writer.writerow(row)
+
+print("✅ 已從 static.csv 統計分類並寫入 category_log.csv")
+
+import csv
+
+csv_file = "category_log.csv"
+
+try:
+    with open(csv_file, newline='', encoding='utf-8-sig') as f:
+        reader = csv.reader(f)
+        rows = list(reader)
+
+        if not rows:
+            print("❌ 檔案是空的")
+        else:
+            print("📋 category_log.csv 內容如下：\n")
+            for row in rows:
+                print(" ｜ ".join(row))
+
+except FileNotFoundError:
+    print("❌ 找不到檔案 category_log.csv")
+except Exception as e:
+    print("❌ 發生錯誤：", e)
