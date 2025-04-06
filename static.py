@@ -171,10 +171,10 @@ with open("static.csv", "r", encoding="utf-8") as f:
         if len(parts) == 5:  # 只保留正確的資料列
             rows.append(parts)
 
-# 建立 DataFrame
-df = pd.DataFrame(rows, columns=["書名", "作者", "價格", "分類", "連結"])
+# 直接從本次爬下來的資料建立 DataFrame
+df = pd.DataFrame(book_data, columns=["書名", "作者", "價格", "分類", "連結"])
 
-# 統計分類出現次數
+# 統計分類
 category_count = df["分類"].value_counts().sort_values(ascending=False)
 
 # 組合一列：時間 + Top 分類(次數)
