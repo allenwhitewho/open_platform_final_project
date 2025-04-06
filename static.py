@@ -130,8 +130,9 @@ for cat, count in sorted(category_count.items(), key=lambda x: x[1], reverse=Tru
     print(f"分類「{cat}」出現次數：{count}")
 
 import pandas as pd
-from datetime import datetime
 import csv
+from datetime import datetime
+import pytz
 
 # 讀取 static.csv（你的爬蟲輸出）
 df = pd.read_csv("static.csv")
@@ -139,8 +140,11 @@ df = pd.read_csv("static.csv")
 # 統計分類出現次數
 category_count = df["分類"].value_counts().sort_values(ascending=False)
 
+
+# 設定時區為台灣
+tz = pytz.timezone("Asia/Taipei")
 # 取得當前時間
-now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+now = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
 
 # 組合一列：時間 + Top 分類(次數)
 row = [now] + [f"{cat}({count})" for cat, count in category_count.items()]
