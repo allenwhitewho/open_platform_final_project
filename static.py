@@ -44,10 +44,6 @@ def get_category(book_url, retries=3):
             time.sleep(60)
     return "分類讀取失敗"
 
-# 先測試個別連結是否分類正確
-print(get_category("https://www.books.com.tw/products/0011016503?loc=P_0001_015"))
-print(get_category("https://www.books.com.tw/products/0011015621?loc=P_0001_016"))
-
 category_count = {}
 
 # 抓排行榜頁
@@ -62,10 +58,11 @@ idx = 1
 error_count = 0
 
 import csv
-
+import re
 # 建立一個清單來存每本書的資料
 book_data = []
 
+# 23 - 73
 for book in books[23:73]:
     title_tag = book.select_one("h4 > a")
     if not title_tag:
@@ -82,6 +79,27 @@ for book in books[23:73]:
     title = title_tag.text.strip()
     author_tag = book.select_one("ul.msg li:nth-of-type(1) a")
     author = author_tag.text.strip() if author_tag else "未知作者"
+
+    if author == "未知作者":
+        # 從詳細頁抓出版社替代作者
+        safe_sleep()
+        try:
+            detail_res = session.get(link, timeout=15)
+            detail_res.raise_for_status()
+            detail_soup = BeautifulSoup(detail_res.text, "html.parser")
+
+            publisher = "未知出版社"
+            meta_tag = detail_soup.select_one("meta[name=description]")
+            if meta_tag and "出版社：" in meta_tag["content"]:
+                desc = meta_tag["content"]
+                match = re.search(r"出版社：(.+?)，", desc)
+                if match:
+                    publisher = match.group(1).strip()
+
+            author = f"（出版社：{publisher}）"
+        except Exception as e:
+            print(f"⚠️ 詳細頁抓出版社失敗：{e}")
+            author = "未知作者"
 
     price_tag = book.select_one("ul.msg li.price_a")
     price = "未知價格"
@@ -118,10 +136,24 @@ for book in books[23:73]:
     # 把這筆資料加入 list
     book_data.append([title, author, price, category, link])
 
-# 寫入 CSV 檔案
-with open("static.csv", "w", newline="", encoding="utf-8-sig") as f:
+from datetime import datetime
+import pytz
+
+# 設定時區為台灣
+tz = pytz.timezone("Asia/Taipei")
+now = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+
+# 寫入 CSV 檔案（接續寫入）
+with open("static.csv", "a", newline="", encoding="utf-8-sig") as f:
     writer = csv.writer(f)
+    
+    # 每次都寫入時間列，標示資料批次開始
+    writer.writerow([now])
+
+    # 寫入欄位標題
     writer.writerow(["書名", "作者", "價格", "分類", "連結"])
+    
+    # 寫入資料
     writer.writerows(book_data)
 
 
@@ -129,53 +161,45 @@ print("\n📊 分類統計結果（依出現次數排序）：")
 for cat, count in sorted(category_count.items(), key=lambda x: x[1], reverse=True):
     print(f"分類「{cat}」出現次數：{count}")
 
-import pandas as pd
-import csv
-from datetime import datetime
-import pytz
 
-# 讀取 static.csv（你的爬蟲輸出）
-df = pd.read_csv("static.csv")
+import pandas as pd
+
+rows = []
+with open("static.csv", "r", encoding="utf-8") as f:
+    for line in f:
+        parts = line.strip().split(",")
+        if len(parts) == 5:  # 只保留正確的資料列
+            rows.append(parts)
+
+# 建立 DataFrame
+df = pd.DataFrame(rows, columns=["書名", "作者", "價格", "分類", "連結"])
 
 # 統計分類出現次數
 category_count = df["分類"].value_counts().sort_values(ascending=False)
 
-
-# 設定時區為台灣
-tz = pytz.timezone("Asia/Taipei")
-# 取得當前時間
-now = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
-
 # 組合一列：時間 + Top 分類(次數)
 row = [now] + [f"{cat}({count})" for cat, count in category_count.items()]
 
-# 檢查欄位長度是否要更新（避免欄位不足）
-csv_file = "category_log.csv"
-try:
-    with open(csv_file, newline='', encoding='utf-8-sig') as f:
-        reader = csv.reader(f)
-        header = next(reader)
-except FileNotFoundError:
-    header = ["時間"]
-if len(row) > len(header):
-    header = ["時間"] + [f"Top{i}" for i in range(1, len(row))]
+# 補齊最多 20 欄（如果不足 20 種分類）
+while len(row) < 21:
+    row.append("")
 
-# 寫入資料（附加）
-with open(csv_file, "a", newline="", encoding="utf-8-sig") as f:
+# 設定欄位名稱
+header = ["時間"] + [f"Top{i}" for i in range(1, 21)]
+
+# 寫入 category_log.csv（附加）
+with open("category_log.csv", "a", newline="", encoding="utf-8-sig") as f:
     writer = csv.writer(f)
-    # 如果是空檔案，補寫欄位
+    # 如果是空檔案就補寫欄位
     if f.tell() == 0:
         writer.writerow(header)
     writer.writerow(row)
 
 print("✅ 已從 static.csv 統計分類並寫入 category_log.csv")
 
-import csv
-
-csv_file = "category_log.csv"
-
+# print category_log.csv
 try:
-    with open(csv_file, newline='', encoding='utf-8-sig') as f:
+    with open("category_log.csv", newline='', encoding='utf-8-sig') as f:
         reader = csv.reader(f)
         rows = list(reader)
 
