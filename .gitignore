@@ -10,6 +10,7 @@ __pycache__/
 *.csv
 !static.csv
 !api.csv
+!history.csv
 
 # 虛擬環境與設定檔
 venv/

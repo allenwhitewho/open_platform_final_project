@@ -136,19 +136,21 @@ for book in books[23:73]:
     # 把這筆資料加入 list
     book_data.append([title, author, price, category, link])
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 # 設定時區為台灣
 tz = pytz.timezone("Asia/Taipei")
-now = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+now = datetime.now(tz).date()
+'''+ timedelta(days=1)'''
+now_str = now.strftime("%Y-%m-%d")
 
 # 寫入 CSV 檔案（接續寫入）
-with open("static.csv", "a", newline="", encoding="utf-8-sig") as f:
+with open("static.csv", "w", newline="", encoding="utf-8-sig") as f:
     writer = csv.writer(f)
     
     # 每次都寫入時間列，標示資料批次開始
-    writer.writerow([now])
+    writer.writerow([now_str])
 
     # 寫入欄位標題
     writer.writerow(["書名", "作者", "價格", "分類", "連結"])
@@ -161,8 +163,54 @@ print("\n📊 分類統計結果（依出現次數排序）：")
 for cat, count in sorted(category_count.items(), key=lambda x: x[1], reverse=True):
     print(f"分類「{cat}」出現次數：{count}")
 
-
+# 讀取 history.csv 舊資料
 import pandas as pd
+import os
+
+history_file = "history.csv"
+sections = []  # 每天一區塊：[date_string, [rows...]]
+if os.path.exists(history_file):
+    with open(history_file, newline='', encoding='utf-8-sig') as f:
+        reader = csv.reader(f)
+        section = []
+        section_date = None
+        for row in reader:
+            if not row:
+                continue
+            if len(row) == 1:
+                try:
+                    # 嘗試解析成日期（確保真的是日期格式）
+                    parsed_date = datetime.strptime(row[0], "%Y-%m-%d").date()
+                    if section_date and section:
+                        sections.append((section_date, section))
+                    section_date = str(parsed_date)
+                    section = []
+                    continue
+                except:
+                    pass  # 如果不是日期就跳過，繼續累加資料
+            section.append(row)
+        if section_date and section:
+            sections.append((section_date, section))
+
+# 3. 新增今天的新資料（格式同上）
+new_section_rows = [["書名", "作者", "價格", "分類", "連結"]] + book_data
+sections.append((str(now), new_section_rows))
+
+# 4. 保留最新 7 天
+# 排序並去重（後面的會蓋掉前面的）
+latest = {}
+for date_str, rows in sections:
+    latest[date_str] = rows
+# 保留最近 7 天
+sorted_dates = sorted(latest.keys(), reverse=True)[:7]
+sections = [(d, latest[d]) for d in sorted_dates]
+
+# 5. 寫入 history.csv
+with open(history_file, "w", newline='', encoding="utf-8-sig") as f:
+    writer = csv.writer(f)
+    for date_str, rows in reversed(sections):  # 由舊到新
+        writer.writerow([date_str])
+        writer.writerows(rows)
 
 rows = []
 with open("static.csv", "r", encoding="utf-8") as f:
