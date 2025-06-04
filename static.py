@@ -43,11 +43,11 @@ def get_category(book_url, retries=3):
         except Exception as e:
             time.sleep(60)
     return "分類讀取失敗"
-
+	
 category_count = {}
 
 # 抓排行榜頁
-url = "https://www.books.com.tw/web/sys_tdrntb/books/"
+url = "https://www.books.com.tw/web/sys_newtopb/books/"
 res = session.get(url)
 soup = BeautifulSoup(res.text, "html.parser")
 books = soup.select("li.item")
@@ -164,7 +164,6 @@ for cat, count in sorted(category_count.items(), key=lambda x: x[1], reverse=Tru
     print(f"分類「{cat}」出現次數：{count}")
 
 # 讀取 history.csv 舊資料
-import pandas as pd
 import os
 
 history_file = "history.csv"
@@ -212,42 +211,55 @@ with open(history_file, "w", newline='', encoding="utf-8-sig") as f:
         writer.writerow([date_str])
         writer.writerows(rows)
 
-rows = []
-with open("static.csv", "r", encoding="utf-8") as f:
-    for line in f:
-        parts = line.strip().split(",")
-        if len(parts) == 5:  # 只保留正確的資料列
-            rows.append(parts)
+import pandas as pd
 
-# 直接從本次爬下來的資料建立 DataFrame
-df = pd.DataFrame(book_data, columns=["書名", "作者", "價格", "分類", "連結"])
+# 步驟 1：讀取 history.csv，整理成每天的 dataframe 清單
+history_file = "history.csv"
+sections = []
 
-# 統計分類
-category_count = df["分類"].value_counts().sort_values(ascending=False)
+with open(history_file, newline='', encoding="utf-8-sig") as f:
+    reader = csv.reader(f)
+    current_date = None
+    current_rows = []
 
-# 組合一列：時間 + Top 分類(次數)
-row = [now] + [f"{cat}({count})" for cat, count in category_count.items()]
+    for row in reader:
+        if not row:
+            continue
+        if len(row) == 1 and row[0].count("-") == 2:  # 偵測日期
+            if current_date and current_rows:
+                df = pd.DataFrame(current_rows[1:], columns=current_rows[0])  # 跳過欄位列
+                sections.append((current_date, df))
+            current_date = row[0].strip()
+            current_rows = []
+        else:
+            current_rows.append(row)
+    if current_date and current_rows:
+        df = pd.DataFrame(current_rows[1:], columns=current_rows[0])
+        sections.append((current_date, df))
 
-# 補齊最多 20 欄（如果不足 20 種分類）
-while len(row) < 21:
-    row.append("")
+# 保留最近 7 天
+sections = sorted(sections, key=lambda x: x[0], reverse=True)[:7]
+sections = list(reversed(sections))  # 由舊到新
 
-# 設定欄位名稱
+# 步驟 2：寫入 category_log.csv（分類 Top 出現次數）
 header = ["時間"] + [f"Top{i}" for i in range(1, 21)]
-
-# 寫入 category_log.csv（附加）
-with open("category_log.csv", "a", newline="", encoding="utf-8-sig") as f:
+csv_file = "category_log.csv"
+with open(csv_file, "w", newline="", encoding="utf-8-sig") as f:
     writer = csv.writer(f)
-    # 如果是空檔案就補寫欄位
-    if f.tell() == 0:
-        writer.writerow(header)
-    writer.writerow(row)
+    writer.writerow(header)
+    for date_str, df in sections:
+        category_count = df["分類"].value_counts().sort_values(ascending=False)
+        row = [date_str] + [f"{cat}({count})" for cat, count in category_count.items()]
+        while len(row) < 21:
+            row.append("")
+        writer.writerow(row)
 
-print("✅ 已從 static.csv 統計分類並寫入 category_log.csv")
+print("✅ 已從 history.csv 統計近七天分類，寫入 category_log.csv（無重複）")
 
-# print category_log.csv
+csv_file = "category_log.csv"
+
 try:
-    with open("category_log.csv", newline='', encoding='utf-8-sig') as f:
+    with open(csv_file, newline='', encoding='utf-8-sig') as f:
         reader = csv.reader(f)
         rows = list(reader)
 
@@ -262,3 +274,180 @@ except FileNotFoundError:
     print("❌ 找不到檔案 category_log.csv")
 except Exception as e:
     print("❌ 發生錯誤：", e)
+
+import matplotlib.pyplot as plt
+plt.rcParams['font.family'] = 'Microsoft JhengHei'  # 改成你電腦有的中文字體
+plt.rcParams['axes.unicode_minus'] = False  # 避免負號顯示成方塊
+
+# 統計分類數量
+category_counts = df["分類"].value_counts()
+
+# 畫出長條圖
+plt.figure(figsize=(12, 6))
+category_counts.plot(kind='bar')
+plt.title("各類別書籍數量（市占圖）", fontsize=16)
+plt.xlabel("分類", fontsize=12)
+plt.ylabel("書籍數量", fontsize=12)
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
+plt.savefig("images/category_distribution_bar.png")  # 用不同檔名儲存
+plt.show()
+plt.close()
+
+
+# —————— 1. 價格欄位文字轉數值 ——————
+# 假設價格格式像 "250元"、"90元"、"未知價格"，先去掉「元」再轉 int，不可轉則設 NaN
+def parse_price(x):
+    try:
+        return int(x.replace("元", ""))
+    except:
+        return None
+
+df["價格_數值"] = df["價格"].apply(parse_price)
+df = df.dropna(subset=["價格_數值"])  # 去掉無法轉成數字的列
+
+# —————— 2. 箱型圖：各分類價格分布 ——————
+plt.rcParams["font.family"] = "Microsoft JhengHei"
+plt.rcParams["axes.unicode_minus"] = False
+
+# 使用 boxplot，各分類價格分布
+df.boxplot(column="價格_數值", by="分類", rot=45, grid=False, showfliers=False)
+plt.title("各分類書籍價格箱型圖", fontsize=16)
+plt.suptitle("")  # 移除 pandas 自帶的副標題
+plt.xlabel("分類", fontsize=12)
+plt.ylabel("價格（元）", fontsize=12)
+plt.tight_layout()
+plt.savefig("images/category_price_boxplot.png")  # 用不同檔名儲存
+plt.show()
+plt.close()
+
+import seaborn as sns
+
+plt.figure(figsize=(14, 6))
+sns.stripplot(x="分類", y="價格_數值", data=df, jitter=True)
+plt.xticks(rotation=45)
+plt.title("各分類書籍價格散佈圖")
+plt.xlabel("分類")
+plt.ylabel("價格（元）")
+plt.tight_layout()
+plt.savefig("images/category_price_scatter.png")  # 用不同檔名儲存
+plt.show()
+plt.close()
+
+
+history_file = "history.csv"
+date = None
+records = []
+
+with open(history_file, encoding="utf-8-sig") as f:
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        if len(line.split(",")) == 1 and line.count("-") == 2:
+            date = line
+        elif date and not line.startswith("書名"):
+            parts = line.split(",")
+            if len(parts) == 5:
+                _, _, _, category, _ = parts
+                records.append((date, category))
+
+df_records = pd.DataFrame(records, columns=["日期", "分類"])
+df_count = df_records.groupby(["日期", "分類"]).size().reset_index(name="書量")
+
+# 做成 pivot table → 行：分類；列：日期；值：書量
+df_pivot = df_count.pivot(index="分類", columns="日期", values="書量").fillna(0).astype(int)
+
+df_pivot.T.plot(marker="o")
+plt.title("各分類市占變化折線圖（7天）", fontsize=14)
+plt.xlabel("日期")
+plt.ylabel("書籍數量")
+plt.legend(title="分類", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.tight_layout()
+plt.savefig("images/category_trend_line.png")  # 用不同檔名儲存
+plt.show()
+plt.close()
+
+top_records = []
+with open("category_log.csv", encoding="utf-8-sig") as f:
+    for line in f:
+        parts = line.strip().split(",")
+        if len(parts) < 2: continue
+        date = parts[0]
+        for item in parts[1:]:
+            if "(" in item and ")" in item:
+                cat = item.split("(")[0]
+                count = int(item.split("(")[1].replace(")", ""))
+                top_records.append((date, cat, count))
+
+df_top = pd.DataFrame(top_records, columns=["日期", "分類", "次數"])
+df_top_pivot = df_top.pivot(index="日期", columns="分類", values="次數").fillna(0).astype(int)
+
+df_top_pivot.plot(kind="bar", stacked=True)
+
+plt.title("Top 分類每日進榜次數堆疊圖", fontsize=14)
+plt.xlabel("日期")
+plt.ylabel("分類進榜次數")
+plt.legend(title="分類", bbox_to_anchor=(1.05, 1), loc="upper left")
+plt.tight_layout()
+plt.savefig("images/category_top10_stacked.png")  # 用不同檔名儲存
+plt.show()
+plt.close()
+
+from collections import Counter
+from matplotlib.ticker import MaxNLocator
+
+# Step 1: 讀入 history.csv
+history_file = "history.csv"
+top10_books = []
+
+with open(history_file, encoding="utf-8-sig") as f:
+    current_date = None
+    current_books = []
+    for line in f:
+        line = line.strip()
+        if not line:
+            continue
+        if "," not in line:
+            # 遇到「只有日期」的行，就把前一天的前10本加進 list
+            if current_date and current_books:
+                top10_books += current_books[:10]
+            current_date = line.strip()
+            current_books = []
+        else:
+            parts = line.split(",")
+            title = parts[0]
+            if title != "書名":  # 排除表頭
+                current_books.append(title)
+
+
+    # 最後一個日期的書也要加
+    if current_date and current_books:
+        top10_books += current_books[:10]
+
+# Step 2: 統計書名出現次數
+counter = Counter(top10_books)
+
+# 過濾出「出現次數 ≥ 2 次」的書
+filtered_common = [(t, c) for t, c in counter.most_common() if c >= 2]
+
+# 如果沒有任何書出現次數 ≥ 2，提示使用者
+if not filtered_common:
+    print("❗目前沒有任何書在 7 天內出現超過一次，無法畫出常駐排行榜。")
+else:
+    # 取前 10 名（如果大於 10）
+    top_common = filtered_common[:10]
+
+    # Step 3: 繪圖
+    titles = [item[0] for item in top_common]
+    counts = [item[1] for item in top_common]
+
+    plt.figure(figsize=(12, 6))
+    plt.barh(titles[::-1], counts[::-1])
+    plt.title("Top 常駐書名排行榜（出現次數大於2）")
+    plt.xlabel("出現次數")
+    plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
+    plt.tight_layout()
+    plt.savefig("images/title_top10_bar.png")
+    plt.show()
+    plt.close()

@@ -1,9 +1,9 @@
 name: Run Spider
 
 on:
-  workflow_dispatch:  # 手動觸發
-  schedule:           # 每天 00:00 UTC（台灣時間早上 08:00）
-    - cron: '0 0 * * *'
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # 每天 00:00 UTC = 台灣早上 08:00
 
 jobs:
   run-spider:
@@ -20,8 +20,8 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install -r requirements.txt || true  # 若沒有 requirements.txt 會略過
-        pip install pandas requests beautifulsoup4
+        pip install -r requirements.txt || true
+        pip install pandas requests beautifulsoup4 matplotlib seaborn
 
     - name: Run api.py
       run: python api.py
@@ -29,11 +29,11 @@ jobs:
     - name: Run static.py
       run: python static.py
 
-    - name: Commit CSV results
+    - name: Commit updated data and images
       run: |
         git config --global user.email "Allen20040209@gmail.com"
         git config --global user.name "allenwhitewho"
         git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
-        git add static.csv category_log.csv history.csv api.csv
-        git commit -m "chore: update CSV data from workflow every hour" || echo "No changes to commit"
+        git add static.csv category_log.csv history.csv api.csv images/*.png
+        git commit -m "chore: daily update of data and images" || echo "No changes to commit"
         git push origin HEAD
