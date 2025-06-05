@@ -275,9 +275,23 @@ except FileNotFoundError:
 except Exception as e:
     print("❌ 發生錯誤：", e)
 
+
 import matplotlib.pyplot as plt
-plt.rcParams['font.family'] = 'Microsoft JhengHei'  # 改成你電腦有的中文字體
-plt.rcParams['axes.unicode_minus'] = False  # 避免負號顯示成方塊
+from matplotlib import font_manager
+
+# 1. 指定字型檔相對路徑（以專案根目錄下的 fonts 資料夾為例）
+font_path = "font/NotoSansCJKtc-Regular.otf"
+
+# 2. 告訴 matplotlib 先把這支字型加進系統可用字型列表
+font_manager.fontManager.addfont(font_path)
+
+# 3. 取得字型名稱（family name），讓 Matplotlib 了解我們要使用哪個 family
+prop = font_manager.FontProperties(fname=font_path)
+font_name = prop.get_name()
+
+# 4. 全域設定，將字型家族設成我們剛才註冊的那一支
+plt.rcParams['font.family'] = font_name
+plt.rcParams['axes.unicode_minus'] = False  # 負號正常顯示
 
 # 統計分類數量
 category_counts = df["分類"].value_counts()
@@ -307,7 +321,7 @@ df["價格_數值"] = df["價格"].apply(parse_price)
 df = df.dropna(subset=["價格_數值"])  # 去掉無法轉成數字的列
 
 # —————— 2. 箱型圖：各分類價格分布 ——————
-plt.rcParams["font.family"] = "Microsoft JhengHei"
+plt.rcParams["font.family"] = font_name
 plt.rcParams["axes.unicode_minus"] = False
 
 # 使用 boxplot，各分類價格分布
@@ -320,6 +334,7 @@ plt.tight_layout()
 plt.savefig("images/category_price_boxplot.png")  # 用不同檔名儲存
 plt.show()
 plt.close()
+
 
 import seaborn as sns
 
@@ -335,64 +350,134 @@ plt.show()
 plt.close()
 
 
+# 1. 先讀取 history.csv，用 csv.reader 處理欄位內可能有逗號的狀況
 history_file = "history.csv"
-date = None
-records = []
+records = []  # 用來收集 (日期, 分類) 資料
 
 with open(history_file, encoding="utf-8-sig") as f:
-    for line in f:
-        line = line.strip()
-        if not line:
-            continue
-        if len(line.split(",")) == 1 and line.count("-") == 2:
-            date = line
-        elif date and not line.startswith("書名"):
-            parts = line.split(",")
-            if len(parts) == 5:
-                _, _, _, category, _ = parts
-                records.append((date, category))
+    reader = csv.reader(f, quotechar='"')
+    current_date = None
 
+    for row in reader:
+        if not row:
+            continue
+        # 如果這一列只有一個欄位，且符合日期格式 (YYYY-MM-DD)，就視為「新的一天開始」
+        if len(row) == 1 and row[0].count("-") == 2:
+            current_date = row[0].strip()
+            continue
+
+        # 跳過標題列（第一個欄位為「書名」）
+        if current_date and row[0] != "書名":
+            # row 大小應該恰好是 5 欄：書名, 作者, 價格, 分類, 連結
+            if len(row) == 5:
+                _, _, _, category, _ = row
+                records.append((current_date, category))
+
+# 2. 把 records 轉成 DataFrame
 df_records = pd.DataFrame(records, columns=["日期", "分類"])
+
+# 3. 計算每一天、每個分類的出現次數 (書量)
 df_count = df_records.groupby(["日期", "分類"]).size().reset_index(name="書量")
 
-# 做成 pivot table → 行：分類；列：日期；值：書量
+# 4. 轉成 pivot table：index=分類，columns=日期，values=書量
 df_pivot = df_count.pivot(index="分類", columns="日期", values="書量").fillna(0).astype(int)
 
-df_pivot.T.plot(marker="o")
-plt.title("各分類市占變化折線圖（7天）", fontsize=14)
-plt.xlabel("日期")
-plt.ylabel("書籍數量")
+# 5. 建立繪圖：每個分類一條線
+plt.figure(figsize=(12, 6))
+
+# a. 取出所有日期，按照「從最早到最新」排序
+dates = sorted(df_pivot.columns.tolist())
+
+# b. 取出所有分類，依 pivot table 的 index（排序後）
+categories = df_pivot.index.tolist()
+
+# c. 選擇一個足夠多色的 colormap；tab20 最多 20 種不同顏色
+cmap = plt.get_cmap("tab20")
+colors = [cmap(i) for i in range(len(categories))]
+
+# d. 逐分類畫折線，並對應一個唯一的顏色
+for idx, cat in enumerate(categories):
+    y_values = [df_pivot.loc[cat, d] for d in dates]
+    plt.plot(
+        dates,
+        y_values,
+        marker="o",
+        label=cat,
+        color=colors[idx % len(colors)]  # 如果分類 > 20，則循環使用顏色
+    )
+
+# 6. 加上標題、座標標籤、圖例
+plt.title("各分類市占變化折線圖（7天）", fontsize=16)
+plt.xlabel("日期", fontsize=12)
+plt.ylabel("書籍數量", fontsize=12)
+plt.xticks(rotation=45, ha="right")
 plt.legend(title="分類", bbox_to_anchor=(1.05, 1), loc="upper left")
 plt.tight_layout()
-plt.savefig("images/category_trend_line.png")  # 用不同檔名儲存
+
+# 7. 儲存成 PNG 圖檔
+plt.savefig("images/category_trend_line.png")
 plt.show()
 plt.close()
 
-top_records = []
-with open("category_log.csv", encoding="utf-8-sig") as f:
-    for line in f:
-        parts = line.strip().split(",")
-        if len(parts) < 2: continue
-        date = parts[0]
-        for item in parts[1:]:
+
+# ————————————————
+# 1. 用 csv.reader 讀取 category_log.csv，避免欄位內的逗號導致切錯
+# ————————————————
+category_log = "category_log.csv"
+top_records = []  # 會收集 (日期, 分類, 次數)
+
+with open(category_log, encoding="utf-8-sig") as f:
+    reader = csv.reader(f, quotechar='"')
+    for row in reader:
+        if not row:
+            continue
+        # 第一個元素是「日期」，後面每個元素長得像 "分類名(次數)"
+        date = row[0].strip()
+        for item in row[1:]:
+            item = item.strip()
+            # 確定 item 形如 "某分類(3)"
             if "(" in item and ")" in item:
                 cat = item.split("(")[0]
-                count = int(item.split("(")[1].replace(")", ""))
-                top_records.append((date, cat, count))
+                try:
+                    n = int(item.split("(")[1].replace(")", ""))
+                except:
+                    n = 0
+                top_records.append((date, cat, n))
 
+# 轉成 DataFrame
 df_top = pd.DataFrame(top_records, columns=["日期", "分類", "次數"])
+
+# ————————————————
+# 2. pivot 出想要的 DataFrame：index=日期、columns=分類、values=次數
+# ————————————————
 df_top_pivot = df_top.pivot(index="日期", columns="分類", values="次數").fillna(0).astype(int)
 
-df_top_pivot.plot(kind="bar", stacked=True)
+# 按照日期排序（如果需要）
+df_top_pivot = df_top_pivot.sort_index()
 
-plt.title("Top 分類每日進榜次數堆疊圖", fontsize=14)
-plt.xlabel("日期")
-plt.ylabel("分類進榜次數")
+# ————————————————
+# 3. 畫堆疊柱狀圖，指定一個大色盤 (colormap) 讓顏色不重複
+# ————————————————
+# 使用 tab20 colormap（最多支援 20 種不同顏色），如果分類超過 20，會自動循環配色
+df_top_pivot.plot(
+    kind="bar",
+    stacked=True,
+    colormap="tab20",
+    figsize=(12, 6)
+)
+
+plt.title("Top 分類每日進榜次數堆疊圖", fontsize=16)
+plt.xlabel("日期", fontsize=12)
+plt.ylabel("分類進榜次數", fontsize=12)
+plt.xticks(rotation=45, ha="right")
 plt.legend(title="分類", bbox_to_anchor=(1.05, 1), loc="upper left")
 plt.tight_layout()
-plt.savefig("images/category_top10_stacked.png")  # 用不同檔名儲存
+
+# 存檔
+plt.savefig("images/category_top10_stacked.png")
 plt.show()
 plt.close()
+
 
 from collections import Counter
 from matplotlib.ticker import MaxNLocator
