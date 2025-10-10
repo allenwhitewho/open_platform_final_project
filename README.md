@@ -43,10 +43,9 @@
 6. 書名常駐排行榜圖
 
 ### 4. Flask 網站
-
-* `/`：首頁，顯示上述六張圖表。
-* `/static`：當日排行榜，提供分類下拉篩選功能，隱藏重複分類欄位。
-* `/history`：歷史排行榜，分頁顯示過去七天每日排行榜（每頁 50 本書）。
+* [首頁（Render 部署）](https://open-final.onrender.com)：顯示六張每日自動生成的圖表。
+* [當日排行榜](https://open-final.onrender.com/static)：提供分類下拉篩選功能，隱藏重複分類欄位。
+* [歷史排行榜](https://open-final.onrender.com/history)：分頁顯示過去七天每日排行榜（每頁 50 本書）。
 
 ### 5. LINE Bot 功能
 
