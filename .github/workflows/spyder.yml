@@ -23,9 +23,6 @@ jobs:
         pip install -r requirements.txt || true
         pip install pandas requests beautifulsoup4 matplotlib seaborn
 
-    - name: Run api.py
-      run: python api.py
-
     - name: Run static.py
       run: python static.py
 
